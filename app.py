@@ -2,12 +2,13 @@ from flask import Flask, render_template, request, send_file
 import os
 from mitreattack.stix20 import MitreAttackData
 from fpdf import FPDF
+import pandas as pd
 
+data = pd.read_csv("datasets/cleaned_threat_data.csv")
 app = Flask(__name__)
-# hehe
-# Locate MITRE data
+
 def get_mitre_file():
-    possible_paths = ["enterprise-attack.json", "../enterprise-attack.json"]
+    possible_paths = ["enterprise-attack.json", "../enterprise-attack.json","mitre_data/enterprise-attack.json"]
     for path in possible_paths:
         if os.path.exists(path):
             return path
@@ -226,6 +227,23 @@ def generate_pdf_report(name, techniques, defenses):
         filename = f"{name}_Playbook.pdf"
         pdf.output(filename)
     except Exception as e: print(f"[-] PDF Generation Failed: {e}")
+
+@app.route("/dashboard")
+def dashboard():
+
+    total = len(data)
+
+    high = len(data[data["severity"] == "High"])
+    medium = len(data[data["severity"] == "Medium"])
+    low = len(data[data["severity"] == "Low"])
+
+    return render_template(
+        "dashboard.html",
+        total=total,
+        high=high,
+        medium=medium,
+        low=low
+    )
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
