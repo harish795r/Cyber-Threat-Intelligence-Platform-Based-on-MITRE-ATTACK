@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MITRE Threat Engine</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <div class="header">
+        <h1>THREAT ENGINE</h1>
+        <div class="subtitle">MITRE ATT&CK Mapping System v6.0</div>
+        <button class="glossary-btn" onclick="openGlossary()">📖 THREAT GLOSSARY</button>
+    </div>
+
+    <div class="container">
+        <div class="intel-container">
+            <div class="intel-panel top-box">
+                <h3 class="intel-title">MITRE ATT&CK TTP EXTRACTOR</h3>
+                <form class="intel-form" method="POST">
+                    <input type="text" id="malwareInput" name="malware" list="malware-list" placeholder="Identify threat..." value="{{ search_term }}" required>
+                    <datalist id="malware-list">
+                        {% for name in catalog %}<option value="{{ name }}">{% endfor %}
+                    </datalist>
+                    <button type="submit">SCAN</button>
+                    <button type="button" onclick="openCatalog()" class="secondary-btn">BROWSE</button>
+                </form>
+            </div>
+
+            <div class="intel-panel bottom-box">
+                <h3 class="intel-title">IP Threat Intelligence</h3>
+                <form method="POST" class="intel-form">
+                    <input type="text" name="ip" placeholder="Enter IP address">
+                    <button type="submit">CHECK</button>
+                </form>
+                {% if ip_result %}
+                <div class="stats-grid">
+                    <div class="stat-card"><span class="stat-val">{{ ip_result.ipAddress }}</span><span class="stat-label">IP</span></div>
+                    <div class="stat-card"><span class="stat-val danger">{{ ip_result.abuseConfidenceScore }}%</span><span class="stat-label">Abuse Score</span></div>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="intel-panel bottom-box">
+                <h3 class="intel-title">VirusTotal File Scan</h3>
+                <form method="POST" enctype="multipart/form-data" class="intel-form">
+                    <input type="file" name="file" class="file-input">
+                    <button type="submit">UPLOAD</button>
+                </form>
+                {% if vt_result %}
+                <div class="stats-grid">
+                    <div class="stat-card"><span class="stat-val danger">{{ vt_result.malicious }}</span><span class="stat-label">Malicious</span></div>
+                    <div class="stat-card"><span class="stat-val success">{{ vt_result.harmless }}</span><span class="stat-label">Clean</span></div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if error %}<div class="error-msg">⚠️ {{ error }}</div>{% endif %}
+
+        {% if results %}
+            <div id="report-content">
+                <div class="stats-grid main-stats">
+                    <div class="stat-card maroon-border"><div class="stat-val">{{ results.name }}</div><div class="stat-label">Threat</div></div>
+                    <div class="stat-card teal-border"><div class="stat-val">{{ results.count }}</div><div class="stat-label">TTPs</div></div>
+                    <div class="stat-card gray-border"><div class="stat-val id-text">{{ results.id }}</div><div class="stat-label">STIX ID</div></div>
+                </div>
+
+                <div class="dashboard-row">
+                    <div class="chart-panel">
+                        <h3 class="panel-header">PHASE DISTRIBUTION</h3>
+                        <div class="canvas-container"><canvas id="attackChart"></canvas></div>
+                        <div class="action-buttons">
+                            <button onclick="downloadDashboard()" class="save-btn">📸 SAVE PDF</button>
+                            <a href="{{ url_for('download_playbook', name=results.name) }}">
+                                <button class="playbook-btn">📄 PLAYBOOK</button>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="table-panel">
+                        <table>
+                            <thead><tr><th>ID</th><th>Phase</th><th>Technique</th></tr></thead>
+                            <tbody>
+                                {% for tech in results.techniques %}
+                                <tr onclick="showDetails('{{ tech.name }}', '{{ tech.id }}', '{{ tech.phase }}', '{{ tech.platforms }}', `{{ tech.full_desc }}`)" class="clickable-row">
+                                    <td><span class="badge">{{ tech.id }}</span></td>
+                                    <td><span class="phase-tag">{{ tech.phase }}</span></td>
+                                    <td class="bold-white">{{ tech.name }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <div id="catalogModal" class="modal">...</div>
+    <div id="glossaryModal" class="modal">...</div>
+    <div id="detailsModal" class="modal">...</div>
+
+    <script>
+        const chartDataRaw = {% if results %}{{ results.chart_data | tojson }}{% else %}null{% endif %};
+        const threatName = "{{ results.name if results else '' }}";
+    </script>
+    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
+</body>
+</html>
