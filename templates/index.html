@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>MITRE Threat Engine</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+</head>
+
+
+<body>
+
+    <!-- HEADER -->
+
+    <div class="header">
+
+        <h1>THREAT ENGINE</h1>
+
+        <div class="subtitle">
+            MITRE ATT&CK Mapping System v6.0
+        </div>
+
+        <button class="glossary-btn" onclick="openGlossary()">
+            📖 THREAT GLOSSARY
+        </button>
+
+    </div>
+
+
+    <div class="container">
+
+
+        <!-- MALWARE SEARCH -->
+
+        <form class="search-box" method="POST" autocomplete="off">
+
+            <input type="text" id="malwareInput" name="malware" list="malware-list" value="{{ search_term }}" required
+                autocomplete="off">
+
+            <datalist id="malware-list">
+
+                {% for name in catalog %}
+                <option value="{{ name }}">
+                    {% endfor %}
+
+            </datalist>
+
+            <button type="submit">
+                SCAN
+            </button>
+
+            <button type="button" class="browse-btn" onclick="openCatalog()">
+                BROWSE MALWARE CATALOGUE
+            </button>
+
+        </form>
+
+        <!-- ERROR -->
+
+        {% if error %}
+
+        <div class="error-msg">
+            ⚠️ {{ error }}
+        </div>
+
+        {% endif %}
+
+
+
+        <!-- RESULTS -->
+
+        {% if results %}
+
+        <div id="report-content" style="margin-top:30px;">
+
+
+            <!-- STATS -->
+
+            <div class="stats-grid">
+
+                <div class="stat-card">
+                    <div class="stat-val">{{ results.name }}</div>
+                    <div class="stat-label">Identified Threat</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-val">{{ results.count }}</div>
+                    <div class="stat-label">TTPs Extracted</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-val" style="font-size:1rem;word-break:break-all;">
+                        {{ results.id }}
+                    </div>
+                    <div class="stat-label">STIX ID</div>
+                </div>
+
+            </div>
+
+            <!-- THREAT SEVERITY -->
+
+            <div class="severity-panel">
+
+                <h3 class="severity-title">
+                    Threat Severity Assessment
+                </h3>
+
+                <div class="severity-bar">
+
+                    <div class="severity-fill" style="width: {{ results.risk_score }}%">
+                    </div>
+
+                </div>
+
+                <div class="severity-label">
+
+                    {{ results.risk }} RISK
+
+                </div>
+
+            </div>
+
+            <!-- MALWARE INTELLIGENCE -->
+
+            <div class="intel-grid">
+
+                <div class="intel-card">
+
+                    <h3 class="intel-title">Malware Intelligence</h3>
+
+                    <p style="color:#b0bec5;line-height:1.6;">
+                        {{ results.description }}
+                    </p>
+
+                    <a href="{{ results.url }}" target="_blank" class="intel-link">
+                        View on MITRE ATT&CK →
+                    </a>
+
+                </div>
+
+
+                <div class="intel-card">
+
+                    <h3 class="intel-title">Threat Actors</h3>
+
+                    {% if results.actors %}
+
+                    <ul class="intel-list">
+
+                        {% for actor in results.actors %}
+
+                        <li>
+
+                            <strong>{{ actor.name }}</strong>
+
+                            <div class="intel-desc">
+                                {{ actor.description }}
+                            </div>
+
+                        </li>
+
+                        {% endfor %}
+
+                    </ul>
+
+                    {% else %}
+
+                    <div class="intel-empty">
+                        No threat actors available
+                    </div>
+
+                    {% endif %}
+
+                </div>
+
+
+                <div class="intel-card">
+
+                    <h3 class="intel-title">Attack Tools</h3>
+
+                    {% if results.tools %}
+
+                    <ul class="intel-list">
+
+                        {% for tool in results.tools %}
+
+                        <li>
+
+                            <strong>{{ tool.name }}</strong>
+
+                            <div class="intel-desc">
+                                {{ tool.description }}
+                            </div>
+
+                        </li>
+
+                        {% endfor %}
+
+                    </ul>
+
+                    {% else %}
+
+                    <div class="intel-empty">
+                        No tools available
+                    </div>
+
+                    {% endif %}
+
+                </div>
+
+            </div>
+
+            <!-- KILL CHAIN TIMELINE -->
+
+            <div class="killchain-panel">
+
+                <h3 class="killchain-title">
+                    Attack Kill Chain Timeline
+                </h3>
+
+                <div class="killchain-flow">
+
+                    {% set phases = [] %}
+
+                    {% for tech in results.techniques %}
+                    {% if tech.phase not in phases %}
+                    {% set _ = phases.append(tech.phase) %}
+                    {% endif %}
+                    {% endfor %}
+
+                    {% for phase in phases %}
+
+                    <div class="kill-step">
+                        {{ phase.replace('-', ' ').title() }}
+                    </div>
+
+                    {% if not loop.last %}
+                    <div class="kill-arrow">→</div>
+                    {% endif %}
+
+                    {% endfor %}
+
+                </div>
+
+            </div>
+
+            <!-- DASHBOARD -->
+
+            <div class="dashboard-row">
+
+
+                <!-- CHART -->
+
+                <div class="chart-panel">
+
+                    <h3 style="color:#b0bec5;text-align:center;font-size:0.8rem;">
+                        Attack Phase Distribution
+                    </h3>
+
+                    <div style="height:300px;">
+                        <canvas id="attackChart"></canvas>
+                    </div>
+
+                </div>
+
+
+                <!-- TABLE -->
+
+                <div class="table-panel">
+
+                    <table>
+
+                        <thead>
+
+                            <tr>
+                                <th>ID</th>
+                                <th>Tactic</th>
+                                <th>Technique</th>
+                                <th>Description</th>
+                            </tr>
+
+                        </thead>
+
+                        <tbody>
+
+                            {% for tech in results.techniques %}
+
+                            <tr
+                                onclick="showDetails('{{ tech.name }}','{{ tech.id }}','{{ tech.phase }}','{{ tech.platforms }}',`{{ tech.full_desc }}`)">
+
+                                <td>{{ tech.id }}</td>
+
+                                <td>{{ tech.phase }}</td>
+
+                                <td style="font-weight:bold;color:white;">
+                                    {{ tech.name }}
+                                </td>
+
+                                <td style="color:#b0bec5;">
+                                    {{ tech.description }}
+                                </td>
+
+                            </tr>
+
+                            {% endfor %}
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- EXPORT BUTTONS -->
+
+        <div style="display:flex;gap:15px;margin-top:20px;margin-bottom:50px;">
+
+            <button onclick="downloadDashboard()"
+                style="background:#26a69a;flex:1;border:none;height:50px;color:white;font-weight:bold;cursor:pointer;">
+                📸 SAVE DASHBOARD PDF
+            </button>
+
+            <a href="{{ url_for('download_playbook', name=results.name) }}" style="flex:1;">
+
+                <button
+                    style="background:#800000;width:100%;border:none;height:50px;color:white;font-weight:bold;cursor:pointer;">
+                    📄 DOWNLOAD PLAYBOOK PDF
+                </button>
+
+            </a>
+
+        </div>
+
+        {% endif %}
+
+    </div>
+
+
+
+    <!-- MALWARE CATALOG -->
+
+    <div id="catalogModal" class="modal">
+
+        <div class="modal-content">
+
+            <div class="modal-header">
+
+                <span class="close" onclick="closeCatalog()">&times;</span>
+
+                <h2 style="margin:0;color:#800000;">
+                    Malware Catalogue
+                </h2>
+
+            </div>
+
+            <div style="max-height:400px;overflow-y:auto;">
+
+                {% for name in catalog %}
+
+                <div class="catalog-item" onclick="selectMalware('{{ name }}')">
+                    {{ name }}
+                </div>
+
+                {% endfor %}
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+
+    <!-- GLOSSARY -->
+
+    <div id="glossaryModal" class="modal">
+
+        <div class="modal-content">
+
+            <div class="modal-header">
+
+                <span class="close" onclick="closeGlossary()">&times;</span>
+
+                <h2 style="margin:0;color:#26a69a;">
+                    Threat Glossary
+                </h2>
+
+            </div>
+
+            <div style="padding:20px;">
+
+                {% for term, definition in glossary.items() %}
+
+                <div style="margin-bottom:15px;">
+
+                    <div style="color:#800000;font-weight:bold;">
+                        {{ term }}
+                    </div>
+
+                    <div style="color:#eceff1;">
+                        {{ definition }}
+                    </div>
+
+                </div>
+
+                {% endfor %}
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+
+    <!-- TECHNIQUE DETAILS -->
+
+    <div id="detailsModal" class="modal">
+
+        <div class="modal-content">
+
+            <div class="modal-header" style="background:#004d40;">
+
+                <span class="close" onclick="closeDetails()">&times;</span>
+
+                <h2 id="modalTitle" style="margin:0;color:white;">
+                    Technique
+                </h2>
+
+            </div>
+
+            <div style="padding:20px;">
+
+                <p><strong>ID:</strong> <span id="modalID"></span></p>
+
+                <p><strong>Phase:</strong>
+                    <span id="modalPhase" style="color:#26a69a;"></span>
+                </p>
+
+                <p><strong>Platforms:</strong>
+                    <span id="modalPlatforms"></span>
+                </p>
+
+                <hr>
+
+                <p id="modalDesc" style="line-height:1.6;"></p>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+
+    <script>
+
+        let chartDataRaw = {{ results.chart_data | tojson if results else '{}' }};
+        let threatName = "{{ results.name if results else '' }}";
+
+    </script>
+
+
+    <script src="static/scripts.js"></script>
+
+</body>
+
+</html>
