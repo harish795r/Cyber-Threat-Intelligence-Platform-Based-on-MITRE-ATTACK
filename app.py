@@ -315,13 +315,12 @@ def index():
 @app.route('/download_playbook/<name>')
 def download_playbook(name):
 
-    filename = f"{name}_Playbook.pdf"
+    filename = os.path.join("reports", f"{name}_Playbook.pdf")
 
     if os.path.exists(filename):
         return send_file(filename, as_attachment=True)
 
     return "Error: File not found"
-
 
 # =================================
 # PDF GENERATION
@@ -362,10 +361,18 @@ def generate_pdf_report(name, techniques, defenses):
 
         pdf.ln(1)
 
-    filename = f"{name}_Playbook.pdf"
+    # ================================
+    # SAVE TO REPORTS FOLDER
+    # ================================
+
+    folder = "reports"
+
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+    filename = os.path.join(folder, f"{name}_Playbook.pdf")
 
     pdf.output(filename)
-
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
