@@ -1,78 +1,93 @@
 from flask import Flask, render_template, request, send_file
 import os
-from mitreattack.stix20 import MitreAttackData
+import subprocess
+import time
+import requests
 from fpdf import FPDF
-import pandas as pd
 
-# NEW IMPORTS
+# External modules
 from modules.abuseipdb import check_ip
 from modules.virustotal import check_file
 
 
 app = Flask(__name__)
 
-def get_mitre_file():
-    possible_paths = [
-        "enterprise-attack.json",
-        "../enterprise-attack.json",
-        "mitre_data/enterprise-attack.json"
-    ]
+# =================================
+# ATTACKMATRIX API CONFIG
+# =================================
 
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
-
-    return None
+ATTACK_API = "http://127.0.0.1:8008/api"
 
 
-MITRE_FILE = get_mitre_file()
+def start_attackmatrix():
+    try:
+        requests.get(f"{ATTACK_API}/explore/Tactics", timeout=2)
+        print("[+] AttackMatrix API already running")
+    except:
+        print("[+] Starting AttackMatrix API...")
+        subprocess.Popen(
+            ["python3", "attackmatrix/attackmatrix.py", "-d"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        time.sleep(4)
+        print("[+] AttackMatrix API started")
 
-# Globals
-mitre_data = None
+
+start_attackmatrix()
+
+
+# =================================
+# LOAD MALWARE CATALOG FROM API
+# =================================
+
 malware_catalog = []
 
+def load_catalog():
+    global malware_catalog
 
-# UI glossary
+    try:
+        data = requests.get(f"{ATTACK_API}/search?params=rat").json()
+
+        names = []
+
+        if "Malwares" in data:
+            for mid, m in data["Malwares"].items():
+                names.extend(m["Metadata"]["name"])
+
+        malware_catalog = sorted(list(set(names)))
+
+        print(f"[+] Loaded catalog with {len(malware_catalog)} entries")
+
+    except:
+        print("[-] Failed to load catalog")
+
+
+load_catalog()
+
+
+# =================================
+# GLOSSARY
+# =================================
+
 glossary_defs = {
-    "APT": "Advanced Persistent Threat. A prolonged, targeted attack.",
-    "C2": "Command and Control. communicating with compromised systems.",
-    "Exfiltration": "Stealing data from a network.",
-    "Lateral Movement": "Moving through a network to find targets.",
-    "MITRE ATT&CK": "Knowledge base of adversary behavior.",
-    "Phishing": "Tricking victims into opening malicious files/links.",
-    "Ransomware": "Malware that locks files until a ransom is paid.",
-    "STIX": "Structured Threat Information Expression.",
-    "TTPs": "Tactics, Techniques, and Procedures.",
-    "Zero-Day": "A vulnerability unknown to the vendor."
+    "APT": "Advanced Persistent Threat",
+    "C2": "Command and Control server",
+    "Exfiltration": "Stealing data from a network",
+    "Lateral Movement": "Moving through a network",
+    "MITRE ATT&CK": "Knowledge base of adversary techniques",
+    "Phishing": "Tricking users to open malicious files",
+    "Ransomware": "Malware encrypting files for ransom",
+    "STIX": "Structured Threat Information Expression",
+    "TTPs": "Tactics Techniques Procedures",
+    "Zero-Day": "Unknown vulnerability exploited"
 }
 
 
-# Init database
-if MITRE_FILE:
+# =================================
+# CLEAN TEXT
+# =================================
 
-    print(f"[+] Loading MITRE Data from: {MITRE_FILE}...")
-
-    try:
-        mitre_data = MitreAttackData(MITRE_FILE)
-
-        malware_objs = mitre_data.get_objects_by_type("malware")
-        tool_objs = mitre_data.get_objects_by_type("tool")
-
-        all_names = [obj['name'] for obj in malware_objs] + [obj['name'] for obj in tool_objs]
-
-        malware_catalog = sorted(list(set(all_names)))
-
-        print(f"[+] Database Loaded. Found {len(malware_catalog)} artifacts.")
-
-    except Exception as e:
-        print(f"[-] Error loading DB: {e}")
-
-else:
-    print("[-] CRITICAL: enterprise-attack.json not found!")
-
-
-
-# Fix encoding/bad chars
 def clean_text(text):
 
     if not text:
@@ -91,9 +106,12 @@ def clean_text(text):
     for k, v in replacements.items():
         text = text.replace(k, v)
 
-    return text.encode('latin-1', 'replace').decode('latin-1')
+    return text
 
 
+# =================================
+# MAIN ROUTE
+# =================================
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -102,159 +120,104 @@ def index():
     error = None
     search_term = ""
 
-    # NEW VARIABLES
     ip_result = None
     vt_result = None
     file_hash = None
 
-
     if request.method == 'POST':
 
         search_term = request.form.get('malware', '').strip()
-
         ip = request.form.get("ip")
-
         file = request.files.get("file")
 
-
         # =========================
-        # ABUSEIPDB LOOKUP
+        # ABUSEIPDB
         # =========================
 
         if ip:
-
             ip_data = check_ip(ip)
-
             if ip_data:
                 ip_result = ip_data["data"]
 
-
-
         # =========================
-        # VIRUSTOTAL FILE SCAN
+        # VIRUSTOTAL
         # =========================
 
         if file and file.filename != "":
-
             vt_data, file_hash = check_file(file)
-
             if vt_data:
                 vt_result = vt_data["data"]["attributes"]["last_analysis_stats"]
 
-
-
         # =========================
-        # MITRE ATTACK SEARCH
+        # MITRE SEARCH (API)
         # =========================
 
         if search_term:
 
-            if not mitre_data:
-                error = "Database not loaded."
+            try:
 
-            else:
+                search = requests.get(
+                    f"{ATTACK_API}/search?params={search_term}"
+                ).json()
 
-                software_list = mitre_data.get_software_by_alias(search_term)
+                if "Malwares" not in search:
 
-                if software_list:
+                    error = f"No results found for '{search_term}'."
 
-                    target = software_list[0]
+                else:
 
-                    techniques = mitre_data.get_techniques_used_by_software(target['id'])
+                    malware_id = list(search["Malwares"].keys())[0]
+
+                    data = requests.get(
+                        f"{ATTACK_API}/explore/Malwares/{malware_id}"
+                    ).json()
+
+                    techniques = data.get("Techniques", {})
+                    mitigations = data.get("Mitigations", {})
 
                     clean_techs = []
                     phase_counts = {}
 
-                    defenses_seen = set()
-                    defenses_list = []
+                    for tid, t in techniques.items():
 
-                    for t in techniques:
+                        name = t["name"][0]
+                        desc = t["description"][0]
 
-                        mitre_id = "Unknown"
+                        # Derive tactic from technique prefix
+                        base = tid.split(".")[0]
 
-                        for ref in t['object'].get('external_references', []):
-                            if ref.get('source_name') == 'mitre-attack':
-                                mitre_id = ref.get('external_id')
-                                break
-
-
-                        phase = "Unknown"
-
-                        if 'kill_chain_phases' in t['object'] and len(t['object']['kill_chain_phases']) > 0:
-                            phase = t['object']['kill_chain_phases'][0]['phase_name']
-
+                        if base.startswith("T10"):
+                            phase = "execution"
+                        elif base.startswith("T11"):
+                            phase = "credential-access"
+                        elif base.startswith("T12"):
+                            phase = "initial-access"
+                        elif base.startswith("T15"):
+                            phase = "defense-evasion"
+                        else:
+                            phase = "other"
 
                         phase_counts[phase] = phase_counts.get(phase, 0) + 1
 
-
-                        platforms = t['object'].get('x_mitre_platforms', ['Unknown'])
-
-
-                        related_mitigations = mitre_data.get_mitigations_mitigating_technique(t['object']['id'])
-
-
-                        for m in related_mitigations:
-
-                            m_name = m['object']['name']
-
-                            m_ext_id = "Unknown"
-
-                            for ref in m['object'].get('external_references', []):
-
-                                if ref.get('source_name') == 'mitre-attack':
-                                    m_ext_id = ref.get('external_id')
-                                    break
-
-
-                            if m_name not in defenses_seen:
-
-                                defenses_seen.add(m_name)
-
-                                m_desc = m['object'].get('description', 'No description')
-
-                                clean_desc = clean_text(m_desc)[:200] + "..."
-
-                                defenses_list.append(f"[{m_ext_id}] {m_name}: {clean_desc}")
-
-
                         clean_techs.append({
-                            "id": mitre_id,
-                            "name": t['object']['name'],
-                            "description": t['object'].get('description', 'No description')[:300] + "...",
-                            "full_desc": t['object'].get('description', 'No description'),
+                            "id": tid,
+                            "name": name,
+                            "description": desc[:300] + "...",
+                            "full_desc": desc,
                             "phase": phase,
-                            "platforms": ", ".join(platforms)
+                            "platforms": "Unknown"
                         })
 
+                    defenses_list = []
 
-                    kill_chain_order = {
-                        "reconnaissance": 1,
-                        "resource-development": 2,
-                        "initial-access": 3,
-                        "execution": 4,
-                        "persistence": 5,
-                        "privilege-escalation": 6,
-                        "defense-evasion": 7,
-                        "credential-access": 8,
-                        "discovery": 9,
-                        "lateral-movement": 10,
-                        "collection": 11,
-                        "command-and-control": 12,
-                        "exfiltration": 13,
-                        "impact": 14,
-                        "unknown": 99
-                    }
+                    for mid, m in mitigations.items():
 
+                        mname = m["name"][0]
+                        mdesc = m["description"][0][:200] + "..."
 
-                    clean_techs.sort(
-                        key=lambda x: kill_chain_order.get(x['phase'].lower().replace(' ', '-'), 99)
-                    )
+                        defenses_list.append(f"{mname}: {mdesc}")
 
-
-                    defenses_list.sort()
-
-
-                    count = len(techniques)
+                    count = len(clean_techs)
 
                     risk_level = "LOW"
 
@@ -267,11 +230,11 @@ def index():
                     if count > 40:
                         risk_level = "CRITICAL"
 
-
+                    malware_name = data["Metadata"]["name"][0]
 
                     results = {
-                        "name": target['name'],
-                        "id": target['id'],
+                        "name": malware_name,
+                        "id": malware_id,
                         "count": count,
                         "risk": risk_level,
                         "techniques": clean_techs,
@@ -279,14 +242,10 @@ def index():
                         "defenses": defenses_list
                     }
 
+                    generate_pdf_report(malware_name, clean_techs, defenses_list)
 
-                    generate_pdf_report(target['name'], clean_techs, defenses_list)
-
-
-                else:
-
-                    error = f"No results found for '{search_term}'. Please select from the catalog."
-
+            except Exception as e:
+                error = str(e)
 
     return render_template(
         'index.html',
@@ -295,14 +254,15 @@ def index():
         search_term=search_term,
         catalog=malware_catalog,
         glossary=glossary_defs,
-
-        # NEW DATA
         ip_result=ip_result,
         vt_result=vt_result,
         file_hash=file_hash
     )
 
 
+# =================================
+# PDF DOWNLOAD
+# =================================
 
 @app.route('/download_playbook/<name>')
 def download_playbook(name):
@@ -315,81 +275,48 @@ def download_playbook(name):
     return "Error: File not found"
 
 
+# =================================
+# PDF GENERATION
+# =================================
 
 def generate_pdf_report(name, techniques, defenses):
 
-    try:
+    pdf = FPDF()
+    pdf.add_page()
 
-        pdf = FPDF()
+    pdf.set_font("Arial", "B", 20)
+    pdf.cell(0, 10, f"Threat Report: {clean_text(name)}", ln=True)
 
-        pdf.add_page()
+    pdf.ln(10)
 
-        pdf.set_fill_color(240, 240, 240)
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, "Adversary Playbook", ln=True)
 
-        pdf.rect(0, 0, 210, 297, 'F')
+    for i, t in enumerate(techniques, 1):
 
-        pdf.set_font("Arial", "B", 24)
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 8, f"{i}. {clean_text(t['name'])} ({t['id']})", ln=True)
 
-        pdf.cell(0, 10, f"Threat Report: {clean_text(name)}", ln=True, align="C")
+        pdf.set_font("Arial", "", 10)
+        pdf.multi_cell(0, 6, clean_text(t["description"]))
 
-        pdf.ln(5)
+        pdf.ln(2)
 
-        pdf.set_font("Arial", "I", 12)
+    pdf.add_page()
 
-        pdf.cell(0, 10, "Generated by MITRE ATT&CK Mapping System", ln=True, align="C")
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, "Defense Blueprint", ln=True)
 
-        pdf.line(10, 45, 200, 45)
+    for d in defenses[:20]:
 
-        pdf.ln(20)
+        pdf.set_font("Arial", "", 10)
+        pdf.multi_cell(0, 6, clean_text(d))
 
+        pdf.ln(1)
 
-        pdf.set_font("Arial", "B", 16)
+    filename = f"{name}_Playbook.pdf"
 
-        pdf.set_text_color(128, 0, 0)
-
-        pdf.cell(0, 10, "PART 1: ADVERSARY PLAYBOOK", ln=True)
-
-        pdf.ln(5)
-
-
-        for i, t in enumerate(techniques, 1):
-
-            pdf.set_font("Arial", "B", 12)
-
-            pdf.cell(0, 8, f"Step {i}: {clean_text(t['name'])} ({clean_text(t['id'])})", ln=True)
-
-            pdf.multi_cell(0, 5, clean_text(t['description']))
-
-            pdf.ln(4)
-
-
-        pdf.add_page()
-
-        pdf.set_font("Arial", "B", 16)
-
-        pdf.cell(0, 10, "PART 2: DEFENSE BLUEPRINT", ln=True)
-
-        pdf.ln(5)
-
-
-        for d in defenses[:20]:
-
-            pdf.set_font("Arial", "", 10)
-
-            pdf.multi_cell(0, 6, clean_text(d))
-
-            pdf.ln(2)
-
-
-        filename = f"{name}_Playbook.pdf"
-
-        pdf.output(filename)
-
-
-    except Exception as e:
-
-        print(f"[-] PDF Generation Failed: {e}")
-
+    pdf.output(filename)
 
 
 if __name__ == '__main__':

@@ -111,9 +111,7 @@ def index():
     if request.method == 'POST':
 
         search_term = request.form.get('malware', '').strip()
-
         ip = request.form.get("ip")
-
         file = request.files.get("file")
 
 
@@ -178,14 +176,19 @@ def index():
                                 break
 
 
+                        # FIXED TACTIC EXTRACTION
                         phase = "Unknown"
 
-                        if 'kill_chain_phases' in t['object'] and len(t['object']['kill_chain_phases']) > 0:
-                            phase = t['object']['kill_chain_phases'][0]['phase_name']
+                        kill_chain = t['object'].get("kill_chain_phases", [])
+
+                        if kill_chain:
+                            for p in kill_chain:
+                                if p.get("kill_chain_name") == "mitre-attack":
+                                    phase = p.get("phase_name", "Unknown")
+                                    break
 
 
                         phase_counts[phase] = phase_counts.get(phase, 0) + 1
-
 
                         platforms = t['object'].get('x_mitre_platforms', ['Unknown'])
 
@@ -295,8 +298,6 @@ def index():
         search_term=search_term,
         catalog=malware_catalog,
         glossary=glossary_defs,
-
-        # NEW DATA
         ip_result=ip_result,
         vt_result=vt_result,
         file_hash=file_hash
