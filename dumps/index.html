@@ -1,112 +1,427 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MITRE Threat Engine</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>MITRE Threat Engine</title>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
 </head>
+
+
 <body>
 
-    <div class="header">
-        <h1>THREAT ENGINE</h1>
-        <div class="subtitle">MITRE ATT&CK Mapping System v6.0</div>
-        <button class="glossary-btn" onclick="openGlossary()">📖 THREAT GLOSSARY</button>
-    </div>
+<!-- HEADER -->
 
-    <div class="container">
-        <div class="intel-container">
-            <div class="intel-panel top-box">
-                <h3 class="intel-title">MITRE ATT&CK TTP EXTRACTOR</h3>
-                <form class="intel-form" method="POST">
-                    <input type="text" id="malwareInput" name="malware" list="malware-list" placeholder="Identify threat..." value="{{ search_term }}" required>
-                    <datalist id="malware-list">
-                        {% for name in catalog %}<option value="{{ name }}">{% endfor %}
-                    </datalist>
-                    <button type="submit">SCAN</button>
-                    <button type="button" onclick="openCatalog()" class="secondary-btn">BROWSE</button>
-                </form>
-            </div>
+<div class="header">
 
-            <div class="intel-panel bottom-box">
-                <h3 class="intel-title">IP Threat Intelligence</h3>
-                <form method="POST" class="intel-form">
-                    <input type="text" name="ip" placeholder="Enter IP address">
-                    <button type="submit">CHECK</button>
-                </form>
-                {% if ip_result %}
-                <div class="stats-grid">
-                    <div class="stat-card"><span class="stat-val">{{ ip_result.ipAddress }}</span><span class="stat-label">IP</span></div>
-                    <div class="stat-card"><span class="stat-val danger">{{ ip_result.abuseConfidenceScore }}%</span><span class="stat-label">Abuse Score</span></div>
-                </div>
-                {% endif %}
-            </div>
+<h1>THREAT ENGINE</h1>
 
-            <div class="intel-panel bottom-box">
-                <h3 class="intel-title">VirusTotal File Scan</h3>
-                <form method="POST" enctype="multipart/form-data" class="intel-form">
-                    <input type="file" name="file" class="file-input">
-                    <button type="submit">UPLOAD</button>
-                </form>
-                {% if vt_result %}
-                <div class="stats-grid">
-                    <div class="stat-card"><span class="stat-val danger">{{ vt_result.malicious }}</span><span class="stat-label">Malicious</span></div>
-                    <div class="stat-card"><span class="stat-val success">{{ vt_result.harmless }}</span><span class="stat-label">Clean</span></div>
-                </div>
-                {% endif %}
-            </div>
-        </div>
+<div class="subtitle">
+MITRE ATT&CK Mapping System
+</div>
 
-        {% if error %}<div class="error-msg">⚠️ {{ error }}</div>{% endif %}
+<button class="glossary-btn" onclick="openGlossary()">
+📖 THREAT GLOSSARY
+</button>
 
-        {% if results %}
-            <div id="report-content">
-                <div class="stats-grid main-stats">
-                    <div class="stat-card maroon-border"><div class="stat-val">{{ results.name }}</div><div class="stat-label">Threat</div></div>
-                    <div class="stat-card teal-border"><div class="stat-val">{{ results.count }}</div><div class="stat-label">TTPs</div></div>
-                    <div class="stat-card gray-border"><div class="stat-val id-text">{{ results.id }}</div><div class="stat-label">STIX ID</div></div>
-                </div>
+</div>
 
-                <div class="dashboard-row">
-                    <div class="chart-panel">
-                        <h3 class="panel-header">PHASE DISTRIBUTION</h3>
-                        <div class="canvas-container"><canvas id="attackChart"></canvas></div>
-                        <div class="action-buttons">
-                            <button onclick="downloadDashboard()" class="save-btn">📸 SAVE PDF</button>
-                            <a href="{{ url_for('download_playbook', name=results.name) }}">
-                                <button class="playbook-btn">📄 PLAYBOOK</button>
-                            </a>
-                        </div>
-                    </div>
-                    <div class="table-panel">
-                        <table>
-                            <thead><tr><th>ID</th><th>Phase</th><th>Technique</th></tr></thead>
-                            <tbody>
-                                {% for tech in results.techniques %}
-                                <tr onclick="showDetails('{{ tech.name }}', '{{ tech.id }}', '{{ tech.phase }}', '{{ tech.platforms }}', `{{ tech.full_desc }}`)" class="clickable-row">
-                                    <td><span class="badge">{{ tech.id }}</span></td>
-                                    <td><span class="phase-tag">{{ tech.phase }}</span></td>
-                                    <td class="bold-white">{{ tech.name }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        {% endif %}
-    </div>
 
-    <div id="catalogModal" class="modal">...</div>
-    <div id="glossaryModal" class="modal">...</div>
-    <div id="detailsModal" class="modal">...</div>
+<div class="container">
 
-    <script>
-        const chartDataRaw = {% if results %}{{ results.chart_data | tojson }}{% else %}null{% endif %};
-        const threatName = "{{ results.name if results else '' }}";
-    </script>
-    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
+
+<!-- SEARCH -->
+
+<form class="search-box" method="POST">
+
+<input
+type="text"
+name="malware"
+list="malware-list"
+value="{{ search_term }}"
+required
+>
+
+<datalist id="malware-list">
+
+{% for name in catalog %}
+<option value="{{ name }}">
+{% endfor %}
+
+</datalist>
+
+<button type="submit">
+SCAN
+</button>
+
+<button
+type="button"
+class="browse-btn"
+onclick="openCatalog()"
+>
+BROWSE MALWARE
+</button>
+
+</form>
+
+
+<!-- API PANELS -->
+
+<div class="api-row">
+
+
+<!-- IP CHECK -->
+
+<div class="api-panel">
+
+<div class="api-title">
+IP Threat Intelligence
+</div>
+
+<form method="POST" class="api-form">
+
+<input
+type="text"
+name="ip"
+placeholder="Enter IP address..."
+>
+
+<button type="submit">
+CHECK
+</button>
+
+</form>
+
+{% if ip_result %}
+
+<div class="api-stat">
+
+<div style="font-size:0.7rem;color:#b0bec5;">
+ABUSE SCORE
+</div>
+
+<div class="danger-text">
+{{ ip_result.abuseConfidenceScore }}%
+</div>
+
+</div>
+
+{% endif %}
+
+</div>
+
+
+<!-- VIRUSTOTAL -->
+
+<div class="api-panel">
+
+<div class="api-title">
+VirusTotal File Scan
+</div>
+
+<form method="POST" enctype="multipart/form-data" class="api-form">
+
+<input type="file" name="file" class="file-input">
+
+<button type="submit">
+UPLOAD
+</button>
+
+</form>
+
+{% if vt_result %}
+
+<div class="api-stat">
+
+<div style="font-size:0.7rem;color:#b0bec5;">
+MALICIOUS
+</div>
+
+<div class="danger-text">
+{{ vt_result.malicious }}
+</div>
+
+</div>
+
+{% endif %}
+
+</div>
+
+</div>
+
+
+{% if error %}
+
+<div class="error-msg">
+⚠️ {{ error }}
+</div>
+
+{% endif %}
+
+
+
+{% if results %}
+
+<div id="report-content">
+
+
+<!-- STATS -->
+
+<div class="stats-grid">
+
+<div class="stat-card">
+<div class="stat-val">{{ results.name }}</div>
+<div class="stat-label">Threat</div>
+</div>
+
+<div class="stat-card">
+<div class="stat-val">{{ results.count }}</div>
+<div class="stat-label">Techniques</div>
+</div>
+
+<div class="stat-card">
+<div class="stat-val">{{ results.id }}</div>
+<div class="stat-label">MITRE ID</div>
+</div>
+
+</div>
+
+
+<!-- THREAT SEVERITY -->
+
+<div class="severity-panel">
+
+<h3 class="severity-title">
+Threat Severity
+</h3>
+
+<div class="severity-bar">
+
+<div class="severity-fill"
+style="width: {{ results.risk_score }}%">
+</div>
+
+</div>
+
+<div class="severity-label">
+
+{{ results.risk }}
+
+</div>
+
+</div>
+
+
+
+<!-- INTELLIGENCE -->
+
+<div class="intel-grid">
+
+
+<!-- MALWARE INFO -->
+
+<div class="intel-card">
+
+<h3 class="intel-title">
+Malware Intelligence
+</h3>
+
+<p>
+{{ results.description }}
+</p>
+
+<a href="{{ results.url }}" target="_blank">
+MITRE Page →
+</a>
+
+</div>
+
+
+<!-- ACTORS -->
+
+<div class="intel-card">
+
+<h3 class="intel-title">
+Threat Actors
+</h3>
+
+{% for a in results.actors %}
+
+<div class="intel-item">
+
+<strong>{{ a.name }}</strong>
+
+<p>{{ a.description }}</p>
+
+</div>
+
+{% endfor %}
+
+</div>
+
+
+<!-- TOOLS -->
+
+<div class="intel-card">
+
+<h3 class="intel-title">
+Tools Used
+</h3>
+
+{% for t in results.tools %}
+
+<div class="intel-item">
+
+<strong>{{ t.name }}</strong>
+
+<p>{{ t.description }}</p>
+
+</div>
+
+{% endfor %}
+
+</div>
+
+
+<!-- ATTACK SURFACE -->
+
+<div class="intel-card">
+
+<h3 class="intel-title">
+Attack Surface
+</h3>
+
+{% if results.platforms %}
+
+<ul>
+
+{% for p in results.platforms %}
+
+<li>{{ p }}</li>
+
+{% endfor %}
+
+</ul>
+
+{% else %}
+
+Unknown platforms
+
+{% endif %}
+
+</div>
+
+</div>
+
+
+
+<!-- KILL CHAIN -->
+
+<div class="killchain-panel">
+
+<h3 class="killchain-title">
+Attack Timeline
+</h3>
+
+<div class="killchain-flow">
+
+{% for tech in results.techniques %}
+
+<div class="kill-step">
+{{ tech.phase }}
+</div>
+
+{% endfor %}
+
+</div>
+
+</div>
+
+
+
+<!-- DASHBOARD -->
+
+<div class="dashboard-row">
+
+
+<div class="chart-panel">
+
+<h3>
+Attack Phase Distribution
+</h3>
+
+<canvas id="attackChart"></canvas>
+
+</div>
+
+
+<div class="table-panel">
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>ID</th>
+<th>Tactic</th>
+<th>Technique</th>
+<th>Description</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+{% for tech in results.techniques %}
+
+<tr>
+
+<td>{{ tech.id }}</td>
+
+<td>{{ tech.phase }}</td>
+
+<td>{{ tech.name }}</td>
+
+<td>{{ tech.description }}</td>
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+
+</div>
+
+{% endif %}
+
+</div>
+
+
+
+<script>
+
+let chartDataRaw = {{ results.chart_data | tojson if results else '{}' }};
+
+</script>
+
+<script src="{{ url_for('static', filename='scripts.js') }}"></script>
+
 </body>
 </html>

@@ -4,6 +4,7 @@ import subprocess
 import time
 import requests
 from fpdf import FPDF
+import re
 
 # External modules
 from modules.abuseipdb import check_ip
@@ -93,6 +94,13 @@ def clean_text(text):
     if not text:
         return ""
 
+    # Replace markdown links [text](url) -> text
+    text = re.sub(r'\[([^\]]+)\]\((.*?)\)', r'\1', text)
+
+    # Remove citation tags
+    text = re.sub(r'\(Citation:.*?\)', '', text)
+
+    # Fix unicode characters
     replacements = {
         '\u2018': "'",
         '\u2019': "'",
@@ -172,19 +180,35 @@ def index():
                         f"{ATTACK_API}/explore/Malwares/{malware_id}"
                     ).json()
 
+                    metadata = data.get("Metadata", {})
+
+                    malware_name = metadata.get("name", ["Unknown"])[0]
+                    malware_desc = clean_text(metadata.get("description", ["No description"])[0])
+                    malware_url = metadata.get("url", [""])[0]
+
                     techniques = data.get("Techniques", {})
                     mitigations = data.get("Mitigations", {})
+                    actors_data = data.get("Actors", {})
+                    tools_data = data.get("Tools", {})
 
                     clean_techs = []
                     phase_counts = {}
 
+                    # SAFE ATTACK SURFACE COLLECTION
+                    platforms_set = set()
+
                     for tid, t in techniques.items():
 
                         name = t["name"][0]
-                        desc = t["description"][0]
+                        desc = clean_text(t["description"][0])
 
-                        # Derive tactic from technique prefix
+                        platforms = t.get("platforms", [])
+                        for p in platforms:
+                            platforms_set.add(p)
+
                         base = tid.split(".")[0]
+
+                        # DO NOT TOUCH THIS LOGIC (avoids "other bug")
 
                         if base.startswith("T10"):
                             phase = "execution"
@@ -217,26 +241,50 @@ def index():
 
                         defenses_list.append(f"{mname}: {mdesc}")
 
+                    actors = []
+
+                    for aid, a in actors_data.items():
+
+                        actors.append({
+                            "name": a["name"][0],
+                            "description": clean_text(a["description"][0])[:200] + "..."
+                        })
+
+                    tools = []
+
+                    for tid, t in tools_data.items():
+
+                        tools.append({
+                            "name": t["name"][0],
+                            "description": clean_text(t["description"][0])[:200] + "..."
+                        })
+
                     count = len(clean_techs)
 
-                    risk_level = "LOW"
-
-                    if count > 10:
+                    if count <= 5:
+                        risk_level = "LOW"
+                        risk_score = 25
+                    elif count <= 10:
                         risk_level = "MEDIUM"
-
-                    if count > 20:
+                        risk_score = 50
+                    elif count <= 20:
                         risk_level = "HIGH"
-
-                    if count > 40:
+                        risk_score = 75
+                    else:
                         risk_level = "CRITICAL"
-
-                    malware_name = data["Metadata"]["name"][0]
+                        risk_score = 100
 
                     results = {
                         "name": malware_name,
+                        "description": malware_desc,
+                        "url": malware_url,
+                        "actors": actors,
+                        "tools": tools,
+                        "platforms": list(platforms_set),  # ATTACK SURFACE
                         "id": malware_id,
                         "count": count,
                         "risk": risk_level,
+                        "risk_score": risk_score,
                         "techniques": clean_techs,
                         "chart_data": phase_counts,
                         "defenses": defenses_list
